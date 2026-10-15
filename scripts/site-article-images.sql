@@ -1,0 +1,14 @@
+UPDATE SiteArticles SET ImageUrl = N'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?auto=format&fit=crop&w=900&q=80' WHERE Title = N'National Cinema mở thêm suất cuối tuần';
+UPDATE SiteArticles SET ImageUrl = N'https://images.unsplash.com/photo-1517604931442-0a0dd4d0e1a3?auto=format&fit=crop&w=900&q=80' WHERE Title = N'Vé điện tử có mã QR check-in';
+UPDATE SiteArticles SET ImageUrl = N'https://images.unsplash.com/photo-1594909122845-11baa439b7bf?auto=format&fit=crop&w=900&q=80' WHERE Title = N'Ghế đôi đã có trên sơ đồ phòng';
+UPDATE SiteArticles SET ImageUrl = N'https://images.unsplash.com/photo-1485846234645-a62644f84728?auto=format&fit=crop&w=900&q=80' WHERE Title = N'Đồng giá vé 75.000đ';
+UPDATE SiteArticles SET ImageUrl = N'https://images.unsplash.com/photo-1578849278619-e73505e9610f?auto=format&fit=crop&w=900&q=80' WHERE Title = N'Combo bắp nước 79.000đ';
+UPDATE SiteArticles SET ImageUrl = N'https://images.unsplash.com/photo-1478720568477-152d9b164e26?auto=format&fit=crop&w=900&q=80' WHERE Title = N'Suất ngày thường tại quầy';
+UPDATE SiteArticles SET ImageUrl = N'https://images.unsplash.com/photo-1440404653325-ab127d49abc1?auto=format&fit=crop&w=900&q=80' WHERE Title = N'Tuần phim cuối tháng';
+UPDATE SiteArticles SET ImageUrl = N'https://images.unsplash.com/photo-1578662996442-48f60103fc96?auto=format&fit=crop&w=900&q=80' WHERE Title = N'Tuần phim hoạt hình';
+UPDATE SiteArticles SET ImageUrl = N'https://images.unsplash.com/photo-1536440136628-849c177e76a1?auto=format&fit=crop&w=900&q=80' WHERE Title = N'Suất đặc biệt tại rạp';
+UPDATE SiteArticles SET ImageUrl = N'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?auto=format&fit=crop&w=900&q=80' WHERE Title = N'Đặt vé online';
+UPDATE SiteArticles SET ImageUrl = N'https://images.unsplash.com/photo-1517604931442-0a0dd4d0e1a3?auto=format&fit=crop&w=900&q=80' WHERE Title = N'Quầy vé';
+UPDATE SiteArticles SET ImageUrl = N'https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&w=900&q=80' WHERE Title = N'Liên hệ';
+UPDATE SiteArticles SET ImageUrl = N'https://images.unsplash.com/photo-1594909122845-11baa439b7bf?auto=format&fit=crop&w=900&q=80' WHERE Title = N'Giữ ghế';
+UPDATE SiteArticles SET ImageUrl = N'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?auto=format&fit=crop&w=900&q=80' WHERE Title = N'Số ghế mỗi đơn';
