@@ -8,6 +8,7 @@ namespace CinemaBooking.Domain.Entities
         public int Id { get; set; }
         public string SeatNumber { get; set; } = "";
         public SeatType SeatType { get; set; }
+        public bool IsBlocked { get; set; }
         public int RoomId { get; set; }
         public Room Room { get; set; } = null!;
 

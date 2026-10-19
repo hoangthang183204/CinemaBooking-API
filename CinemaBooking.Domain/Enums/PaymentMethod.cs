@@ -4,6 +4,8 @@ namespace CinemaBooking.Domain.Enums
     {
         Momo = 1,
         VNPay = 2,
-        Stripe = 3
+        Stripe = 3,
+        Cash = 4,
+        BankTransfer = 5
     }
 }

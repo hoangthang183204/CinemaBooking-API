@@ -12,6 +12,7 @@ namespace CinemaBooking.Application.DTO
         public string SeatNumber { get; set; }
         public int SeatType { get; set; }
         public bool IsBooked { get; set; }
+        public bool IsBlocked { get; set; }
 
         /// <summary>Người khác đang giữ ghế này.</summary>
         public bool IsHeld { get; set; }

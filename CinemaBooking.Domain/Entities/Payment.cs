@@ -14,6 +14,7 @@ namespace CinemaBooking.Domain.Entities
         public string? GatewayResponse { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime? PaidAt { get; set; }
+        public int? StaffId { get; set; }
 
         // Navigation
         public Booking Booking { get; set; } = null!;

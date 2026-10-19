@@ -36,11 +36,21 @@ namespace CinemaBooking.Infrastructure.Services
                 QRCode = et.QRCode
             }).ToList() ?? new List<ElectronicTicketDto>();
 
+            var snackSubtotal = (b.Concessions ?? new List<BookingConcession>()).Sum(c => c.UnitPrice * c.Quantity);
+            var ticketSubtotal = (b.BookingSeats ?? new List<BookingSeat>()).Sum(bs => bs.Price);
+            if (ticketSubtotal <= 0)
+                ticketSubtotal = b.TotalPrice + b.DiscountAmount - b.SurchargeAmount - snackSubtotal;
+
             return new BookingDetailDto
             {
                 Id = b.Id,
                 ShowTimeId = b.ShowTimeId,
                 TotalPrice = b.TotalPrice,
+                TicketSubtotal = ticketSubtotal,
+                SnackSubtotal = snackSubtotal,
+                SurchargeAmount = b.SurchargeAmount,
+                DiscountAmount = b.DiscountAmount,
+                PromoCode = b.PromoCode,
                 Status = b.Status.ToString(),
                 CreatedAt = b.CreatedAt,
                 MovieTitle = b.ShowTime?.Movie?.Title ?? "",

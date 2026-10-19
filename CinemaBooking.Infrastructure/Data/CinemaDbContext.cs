@@ -24,6 +24,9 @@ namespace CinemaBooking.Infrastructure.Data
         public DbSet<ConcessionItem> ConcessionItems => Set<ConcessionItem>();
         public DbSet<BookingConcession> BookingConcessions => Set<BookingConcession>();
         public DbSet<SiteArticle> SiteArticles => Set<SiteArticle>();
+        public DbSet<Promotion> Promotions => Set<Promotion>();
+        public DbSet<SystemSetting> SystemSettings => Set<SystemSetting>();
+        public DbSet<StaffShift> StaffShifts => Set<StaffShift>();
 
         protected override void OnModelCreating(ModelBuilder mb)
         {
@@ -32,8 +35,21 @@ namespace CinemaBooking.Infrastructure.Data
             // Precision tiền tệ
             mb.Entity<Movie>().Property(m => m.Rating).HasPrecision(3, 1);
             mb.Entity<Booking>().Property(b => b.TotalPrice).HasPrecision(18, 2);
+            mb.Entity<Booking>().Property(b => b.DiscountAmount).HasPrecision(18, 2);
+            mb.Entity<Booking>().Property(b => b.SurchargeAmount).HasPrecision(18, 2);
+            mb.Entity<Booking>().Property(b => b.PromoCode).HasMaxLength(40);
+            mb.Entity<Booking>().Property(b => b.CustomerName).HasMaxLength(120);
+            mb.Entity<Booking>().Property(b => b.CustomerPhone).HasMaxLength(30);
+            mb.Entity<Booking>().Property(b => b.CustomerEmail).HasMaxLength(160);
             mb.Entity<BookingSeat>().Property(b => b.Price).HasPrecision(18, 2);
             mb.Entity<Payment>().Property(p => p.Amount).HasPrecision(18, 2);
+            mb.Entity<StaffShift>().Property(s => s.ExpectedCash).HasPrecision(18, 2);
+            mb.Entity<StaffShift>().Property(s => s.ExpectedTransfer).HasPrecision(18, 2);
+            mb.Entity<StaffShift>().Property(s => s.CountedCash).HasPrecision(18, 2);
+            mb.Entity<StaffShift>().Property(s => s.Note).HasMaxLength(400);
+            mb.Entity<StaffShift>().Property(s => s.ReportJson).HasColumnType("nvarchar(max)");
+            mb.Entity<StaffShift>().Property(s => s.OpeningCash).HasPrecision(18, 2);
+            mb.Entity<StaffShift>().Property(s => s.HandoverCash).HasPrecision(18, 2);
 
             // Table name
             mb.Entity<Room>().ToTable("Room");
@@ -81,6 +97,27 @@ namespace CinemaBooking.Infrastructure.Data
                 .HasForeignKey(s => s.RoomId)
                 .OnDelete(DeleteBehavior.NoAction);
 
+            mb.Entity<Promotion>(e =>
+            {
+                e.Property(p => p.Name).HasMaxLength(120).IsRequired();
+                e.Property(p => p.Code).HasMaxLength(40);
+                e.Property(p => p.Kind).HasMaxLength(20).IsRequired();
+                e.Property(p => p.AppliesTo).HasMaxLength(20).IsRequired();
+                e.Property(p => p.Note).HasMaxLength(400);
+                e.Property(p => p.Value).HasPrecision(18, 2);
+                e.Property(p => p.MinSubtotal).HasPrecision(18, 2);
+                e.Property(p => p.MaxDiscount).HasPrecision(18, 2);
+                e.HasIndex(p => p.Code);
+            });
+
+            mb.Entity<SystemSetting>(e =>
+            {
+                e.Property(s => s.Key).HasMaxLength(80).IsRequired();
+                e.Property(s => s.Value).HasMaxLength(200).IsRequired();
+                e.Property(s => s.Label).HasMaxLength(160);
+                e.HasIndex(s => s.Key).IsUnique();
+            });
+
             mb.Entity<User>(e =>
             {
                 e.HasIndex(u => u.Email).IsUnique();
@@ -88,6 +125,9 @@ namespace CinemaBooking.Infrastructure.Data
                 e.Property(u => u.FullName).HasMaxLength(128).IsRequired();
                 e.Property(u => u.PasswordHash).HasMaxLength(512).IsRequired();
                 e.Property(u => u.Phone).HasMaxLength(20);
+                e.Property(u => u.CitizenId).HasMaxLength(12);
+                e.Property(u => u.AvatarUrl).HasMaxLength(500);
+                e.Property(u => u.Position).HasMaxLength(40);
             });
 
             // Một ghế của một suất chỉ có một lượt giữ. Hết hạn thì xóa dòng.

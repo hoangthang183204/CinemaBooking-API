@@ -71,7 +71,8 @@ namespace CinemaBooking.Application.Services
                     SeatId = s.Id,
                     SeatNumber = s.SeatNumber,
                     SeatType = (int)s.SeatType,
-                    IsBooked = bookedSeatIds.Contains(s.Id) || availability.OpenBookingSeatIds.Contains(s.Id),
+                    IsBlocked = s.IsBlocked,
+                    IsBooked = s.IsBlocked || bookedSeatIds.Contains(s.Id) || availability.OpenBookingSeatIds.Contains(s.Id),
                     IsHeld = availability.HeldByOthers.Contains(s.Id),
                     IsHeldByMe = availability.HeldByUser.Contains(s.Id)
                 }).ToList()

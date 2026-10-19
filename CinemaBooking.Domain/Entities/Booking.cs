@@ -10,6 +10,12 @@ namespace CinemaBooking.Domain.Entities
         public int? UserId { get; set; }
         public int ShowTimeId { get; set; }
         public decimal TotalPrice { get; set; }
+        public decimal DiscountAmount { get; set; }
+        public decimal SurchargeAmount { get; set; }
+        public string? PromoCode { get; set; }
+        public string? CustomerName { get; set; }
+        public string? CustomerPhone { get; set; }
+        public string? CustomerEmail { get; set; }
         public BookingStatus Status { get; set; }
         public DateTime CreatedAt { get; set; }
 

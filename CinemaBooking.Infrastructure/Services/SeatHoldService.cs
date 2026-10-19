@@ -43,6 +43,10 @@ namespace CinemaBooking.Infrastructure.Services
             if (invalid.Count > 0)
                 return SeatHoldResult.Fail($"Ghế không thuộc phòng này: {string.Join(", ", invalid)}.");
 
+            var locked = _context.Seats.Where(s => ids.Contains(s.Id) && s.IsBlocked).Select(s => s.SeatNumber).ToList();
+            if (locked.Count > 0)
+                return SeatHoldResult.Fail($"Ghế đã khóa: {string.Join(", ", locked)}.");
+
             var now = DateTime.UtcNow;
             ReleaseExpired(showTimeId, now);
 

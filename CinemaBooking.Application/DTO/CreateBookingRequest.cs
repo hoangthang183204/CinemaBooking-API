@@ -13,6 +13,7 @@ namespace CinemaBooking.Application.DTO
         public List<int> SeatIds { get; set; } = new();
 
         public List<ConcessionPickDto> Concessions { get; set; } = new();
+        public string? PromoCode { get; set; }
 
         // Server tự gán từ JWT — client không cần gửi
         public int? UserId { get; set; }

@@ -10,6 +10,9 @@ namespace CinemaBooking.Domain.Entities
         public string PasswordHash { get; set; } = "";
         public string FullName { get; set; } = "";
         public string? Phone { get; set; }
+        public string? CitizenId { get; set; }
+        public string? AvatarUrl { get; set; }
+        public string? Position { get; set; }
         public UserRole Role { get; set; } = UserRole.Customer;
         public bool IsActive { get; set; } = true;
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

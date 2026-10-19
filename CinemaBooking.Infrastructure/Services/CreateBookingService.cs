@@ -12,7 +12,6 @@ namespace CinemaBooking.Infrastructure.Services
     public class CreateBookingService : ICreateBookingService
     {
         private readonly CinemaDbContext _context;
-        private const decimal PricePerSeat = 75000m;
 
         public CreateBookingService(CinemaDbContext context)
         {
@@ -50,6 +49,13 @@ namespace CinemaBooking.Infrastructure.Services
                     return CreateBookingResult.Fail(
                         $"Bạn đã có đơn #{existingId} cho suất này, cùng phim, cùng phòng và cùng giờ. Hãy thanh toán hoặc hủy đơn đó trước khi đặt thêm.");
             }
+
+            var blockedIds = _context.Seats
+                .Where(s => s.RoomId == showTime.RoomId && s.IsBlocked)
+                .Select(s => s.Id)
+                .ToHashSet();
+            if (seatIds.Any(id => blockedIds.Contains(id)))
+                return CreateBookingResult.Fail("Có ghế đã khóa, không bán được.");
 
             var roomSeatIds = _context.Seats
                 .Where(s => s.RoomId == showTime.RoomId)
@@ -121,12 +127,26 @@ namespace CinemaBooking.Infrastructure.Services
                 });
             }
 
-            var totalPrice = PricePerSeat * seatIds.Count + snackTotal;
+            var quote = CinemaPricing.Quote(_context, showtimeId, seatIds.Count, snackTotal, request.PromoCode, false, request.UserId);
+            if (!string.IsNullOrWhiteSpace(request.PromoCode) && !quote.Ok)
+                return CreateBookingResult.Fail(quote.Message);
+
+            if (quote.Discount > 0 && quote.Code != null)
+            {
+                var used = _context.Promotions.FirstOrDefault(p => p.Code == quote.Code);
+                if (used != null) used.UsedCount += 1;
+            }
+
+            var seatPrice = quote.SeatPrice;
+            var totalPrice = quote.Total;
             var booking = new Booking
             {
                 UserId = request.UserId,
                 ShowTimeId = showtimeId,
                 TotalPrice = totalPrice,
+                DiscountAmount = quote.Discount,
+                SurchargeAmount = quote.Surcharge,
+                PromoCode = quote.Code,
                 Status = BookingStatus.Pending,
                 CreatedAt = DateTime.UtcNow
             };
@@ -136,7 +156,7 @@ namespace CinemaBooking.Infrastructure.Services
                 booking.BookingSeats.Add(new BookingSeat
                 {
                     SeatId = seatId,
-                    Price = PricePerSeat
+                    Price = seatPrice
                 });
             }
 
@@ -153,7 +173,7 @@ namespace CinemaBooking.Infrastructure.Services
                 {
                     ShowTimeId = showtimeId,
                     SeatId = seatId,
-                    Price = PricePerSeat
+                    Price = seatPrice
                 });
             }
 

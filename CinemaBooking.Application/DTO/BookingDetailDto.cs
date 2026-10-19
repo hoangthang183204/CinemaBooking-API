@@ -8,6 +8,11 @@ namespace CinemaBooking.Application.DTO
         public int Id { get; set; }
         public int ShowTimeId { get; set; }
         public decimal TotalPrice { get; set; }
+        public decimal TicketSubtotal { get; set; }
+        public decimal SnackSubtotal { get; set; }
+        public decimal SurchargeAmount { get; set; }
+        public decimal DiscountAmount { get; set; }
+        public string? PromoCode { get; set; }
         public string Status { get; set; } = ""; // Pending, Paid, Cancelled
         public DateTime CreatedAt { get; set; }
         public string MovieTitle { get; set; } = "";

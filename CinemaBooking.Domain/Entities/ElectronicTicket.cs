@@ -1,4 +1,6 @@
-﻿namespace CinemaBooking.Domain.Entities
+﻿using System;
+
+namespace CinemaBooking.Domain.Entities
 {
     /// <summary>
     /// Vé điện tử (1 vé = 1 ghế trong 1 booking đã thanh toán).
@@ -9,6 +11,7 @@
         public int BookingId { get; set; }
         public int SeatId { get; set; }
         public string QRCode { get; set; } = "";
+        public DateTime? CheckedInAt { get; set; }
 
         // Navigation — CHỈ 1 nav cho mỗi FK
         public Booking Booking { get; set; } = null!;
