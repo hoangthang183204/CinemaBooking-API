@@ -81,8 +81,10 @@ namespace CinemaBooking.Infrastructure.Services
                 || !gateway.Host.EndsWith("vnpayment.vn", StringComparison.OrdinalIgnoreCase))
                 return "";
 
-            // ReturnUrl phải trỏ về API (không phải frontend) — giống MoMo dùng Api:PublicUrl.
-            var apiBase = (_config["Api:PublicUrl"] ?? returnBaseUrl ?? "http://localhost:5065").TrimEnd('/');
+            // ReturnUrl phải trỏ về API công khai (không dùng Frontend:BaseUrl).
+            var apiBase = (_config["Api:PublicUrl"] ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrWhiteSpace(apiBase))
+                apiBase = "http://localhost:5065";
             var returnUrl = $"{apiBase}/api/payment/callback/vnpay";
             var now = VietnamNow();
             var ip = string.IsNullOrWhiteSpace(ipAddress) || ipAddress == "::1" ? "127.0.0.1" : ipAddress;
