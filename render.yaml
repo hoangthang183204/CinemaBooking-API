@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: cinema-booking-api
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: Frontend__BaseUrl
+        sync: false
+      - key: ConnectionStrings__DefaultConnection
+        sync: false
+      - key: Jwt__Key
+        sync: false
+      - key: Google__ClientId
+        sync: false

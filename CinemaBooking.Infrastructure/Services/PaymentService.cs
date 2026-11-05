@@ -110,61 +110,61 @@ namespace CinemaBooking.Infrastructure.Services
         private string BuildMomoUrl(int paymentId, long amountVnd, string orderId, string returnBaseUrl)
         {
             var secretKey = _config["Payment:MoMo:SecretKey"] ?? "";
-            var returnUrl = $"{returnBaseUrl.TrimEnd('/')}/api/payment/callback/momo";
-            if (string.IsNullOrEmpty(secretKey))
-            {
-                return $"{returnUrl}?orderId={Uri.EscapeDataString(orderId)}&resultCode=0&requestType=captureWallet";
-            }
-            var endpoint = _config["Payment:MoMo:Endpoint"] ?? "https://test-payment.momo.vn/v2/gateway/api/create";
             var partnerCode = _config["Payment:MoMo:PartnerCode"] ?? "";
             var accessKey = _config["Payment:MoMo:AccessKey"] ?? "";
-            var notifyUrl = returnUrl;
-            var lang = "vi";
-            var requestId = orderId;
-            var orderInfo = $"Thanh toan dat ve #{paymentId}";
-            var extraData = "";
+            if (string.IsNullOrWhiteSpace(secretKey) || string.IsNullOrWhiteSpace(partnerCode) || string.IsNullOrWhiteSpace(accessKey))
+                throw new InvalidOperationException("Chưa cấu hình MoMo. Điền PartnerCode, AccessKey và SecretKey.");
 
-            var rawSignature = $"accessKey={accessKey}&amount={amountVnd}&extraData={extraData}&ipnUrl={notifyUrl}&orderId={orderId}&orderInfo={orderInfo}&partnerCode={partnerCode}&redirectUrl={returnUrl}&requestId={requestId}&requestType=captureWallet&lang={lang}";
-            var signature = HmacSha256(secretKey, rawSignature);
-
+            var endpoint = _config["Payment:MoMo:Endpoint"] ?? "https://test-payment.momo.vn/v2/gateway/api/create";
             if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var endpointUri)
                 || endpointUri.Scheme != Uri.UriSchemeHttps
                 || !endpointUri.Host.EndsWith("momo.vn", StringComparison.OrdinalIgnoreCase))
-                return "";
+                throw new InvalidOperationException("Địa chỉ cổng MoMo không hợp lệ.");
 
-            try
+            var apiBase = (_config["Api:PublicUrl"] ?? "http://localhost:5065").TrimEnd('/');
+            var redirectUrl = $"{apiBase}/api/payment/callback/momo";
+            var ipnUrl = $"{apiBase}/api/payment/ipn/momo";
+            var requestId = orderId;
+            var orderInfo = $"Thanh toan ve {paymentId}";
+            var extraData = "";
+            var requestType = "captureWallet";
+            var rawSignature =
+                $"accessKey={accessKey}&amount={amountVnd}&extraData={extraData}&ipnUrl={ipnUrl}&orderId={orderId}&orderInfo={orderInfo}&partnerCode={partnerCode}&redirectUrl={redirectUrl}&requestId={requestId}&requestType={requestType}";
+            var signature = HmacSha256(secretKey, rawSignature);
+
+            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
+            var body = new
             {
-                using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
-                var body = new
-                {
-                    partnerCode,
-                    partnerName = "Cinema",
-                    storeId = "CinemaStore",
-                    requestId,
-                    amount = amountVnd,
-                    orderId,
-                    orderInfo,
-                    redirectUrl = returnUrl,
-                    ipnUrl = notifyUrl,
-                    lang,
-                    extraData,
-                    requestType = "captureWallet",
-                    signature
-                };
-                var json = System.Text.Json.JsonSerializer.Serialize(body);
-                var content = new StringContent(json, Encoding.UTF8, "application/json");
-                var res = client.PostAsync(endpoint, content).GetAwaiter().GetResult();
-                if (res.IsSuccessStatusCode)
-                {
-                    var respJson = res.Content.ReadAsStringAsync().GetAwaiter().GetResult();
-                    using var doc = System.Text.Json.JsonDocument.Parse(respJson);
-                    if (doc.RootElement.TryGetProperty("payUrl", out var payUrlEl))
-                        return payUrlEl.GetString() ?? "";
-                }
+                partnerCode,
+                partnerName = "National Cinema",
+                storeId = "CinemaBooking",
+                requestId,
+                amount = amountVnd,
+                orderId,
+                orderInfo,
+                redirectUrl,
+                ipnUrl,
+                lang = "vi",
+                extraData,
+                requestType,
+                signature,
+                autoCapture = true
+            };
+            var json = System.Text.Json.JsonSerializer.Serialize(body);
+            using var content = new StringContent(json, Encoding.UTF8, "application/json");
+            using var response = client.PostAsync(endpoint, content).GetAwaiter().GetResult();
+            var respJson = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+            using var doc = System.Text.Json.JsonDocument.Parse(string.IsNullOrWhiteSpace(respJson) ? "{}" : respJson);
+            var root = doc.RootElement;
+            var resultCode = root.TryGetProperty("resultCode", out var codeEl) && codeEl.TryGetInt32(out var code) ? code : -1;
+            if (resultCode == 0 && root.TryGetProperty("payUrl", out var payUrlEl))
+            {
+                var payUrl = payUrlEl.GetString() ?? "";
+                if (!string.IsNullOrWhiteSpace(payUrl)) return payUrl;
             }
-            catch { /* fallback */ }
 
-            return "";
+            var momoMessage = root.TryGetProperty("message", out var messageEl) ? messageEl.GetString() : "MoMo không tạo được link thanh toán";
+            throw new InvalidOperationException(string.IsNullOrWhiteSpace(momoMessage) ? "MoMo không tạo được link thanh toán" : momoMessage);
         }
 
         private string BuildStripeUrl(int paymentId, long amountVnd, string orderId, string returnBaseUrl)
@@ -231,6 +231,15 @@ namespace CinemaBooking.Infrastructure.Services
             payment.PaidAt = DateTime.UtcNow;
             payment.GatewayResponse = string.Join(";", query.Select(kv => $"{kv.Key}={kv.Value}"));
             var booking = _context.Bookings.Include(b => b.BookingSeats).FirstOrDefault(b => b.Id == payment.BookingId);
+            if (booking != null && IsClosedBooking(booking.Status))
+            {
+                payment.Status = PaymentStatus.Cancelled;
+                payment.GatewayResponse = "Đơn đã hết hạn thanh toán trước khi VNPay trả kết quả";
+                _context.SaveChanges();
+                message = "Don da het han thanh toan";
+                bookingId = payment.BookingId;
+                return false;
+            }
             if (booking != null)
             {
                 booking.Status = BookingStatus.Paid;
@@ -252,27 +261,72 @@ namespace CinemaBooking.Infrastructure.Services
             resultCode ??= "";
 
             var payment = _context.Payments.FirstOrDefault(p => p.GatewayOrderId == orderId);
-            if (payment == null) { message = "Payment not found"; return false; }
-            if (payment.Status == PaymentStatus.Success) { bookingId = payment.BookingId; message = "Already paid"; return true; }
-
-            if (resultCode == "0" || resultCode == "9000")
+            if (payment == null)
             {
-                payment.Status = PaymentStatus.Success;
-                payment.PaidAt = DateTime.UtcNow;
-                payment.GatewayResponse = string.Join(";", query.Select(kv => $"{kv.Key}={kv.Value}"));
-                var booking = _context.Bookings.Include(b => b.BookingSeats).FirstOrDefault(b => b.Id == payment.BookingId);
-                if (booking != null)
-                {
-                    booking.Status = BookingStatus.Paid;
-                    CreateElectronicTicketsIfNotExists(booking);
-                }
-                _context.SaveChanges();
-                bookingId = payment.BookingId;
+                message = "Khong tim thay giao dich";
+                return false;
+            }
+            bookingId = payment.BookingId;
+            if (payment.Status == PaymentStatus.Success)
+            {
                 message = "Success";
                 return true;
             }
-            message = "Payment failed";
-            return false;
+            if (!VerifyMomoSignature(query))
+            {
+                message = "Chu ky MoMo khong hop le";
+                return false;
+            }
+            if (query.TryGetValue("amount", out var amountRaw)
+                && long.TryParse(amountRaw, out var paidAmount)
+                && paidAmount != (long)payment.Amount)
+            {
+                message = "So tien khong khop";
+                return false;
+            }
+
+            payment.GatewayResponse = string.Join(";", query.Select(kv => $"{kv.Key}={kv.Value}"));
+            if (resultCode != "0")
+            {
+                payment.Status = PaymentStatus.Failed;
+                _context.SaveChanges();
+                message = "Thanh toan MoMo that bai hoac bi huy";
+                return false;
+            }
+
+            payment.Status = PaymentStatus.Success;
+            payment.PaidAt = DateTime.UtcNow;
+            var booking = _context.Bookings.Include(b => b.BookingSeats).FirstOrDefault(b => b.Id == payment.BookingId);
+            if (booking != null && IsClosedBooking(booking.Status))
+            {
+                payment.Status = PaymentStatus.Cancelled;
+                payment.GatewayResponse = "Đơn đã hết hạn thanh toán trước khi MoMo trả kết quả";
+                _context.SaveChanges();
+                message = "Don da het han thanh toan";
+                return false;
+            }
+            if (booking != null)
+            {
+                booking.Status = BookingStatus.Paid;
+                CreateElectronicTicketsIfNotExists(booking);
+            }
+            _context.SaveChanges();
+            message = "Success";
+            return true;
+        }
+
+        private bool VerifyMomoSignature(IReadOnlyDictionary<string, string> data)
+        {
+            var accessKey = _config["Payment:MoMo:AccessKey"] ?? "";
+            var secretKey = _config["Payment:MoMo:SecretKey"] ?? "";
+            if (string.IsNullOrWhiteSpace(accessKey) || string.IsNullOrWhiteSpace(secretKey)) return false;
+            if (!data.TryGetValue("signature", out var signature) || string.IsNullOrWhiteSpace(signature)) return false;
+
+            string Field(string key) => data.TryGetValue(key, out var value) ? value ?? "" : "";
+            var raw =
+                $"accessKey={accessKey}&amount={Field("amount")}&extraData={Field("extraData")}&message={Field("message")}&orderId={Field("orderId")}&orderInfo={Field("orderInfo")}&orderType={Field("orderType")}&partnerCode={Field("partnerCode")}&payType={Field("payType")}&requestId={Field("requestId")}&responseTime={Field("responseTime")}&resultCode={Field("resultCode")}&transId={Field("transId")}";
+            var mine = HmacSha256(secretKey, raw);
+            return string.Equals(mine, signature, StringComparison.OrdinalIgnoreCase);
         }
 
         public bool HandleStripeCallback(string sessionId, out int bookingId, out string message)
@@ -286,6 +340,15 @@ namespace CinemaBooking.Infrastructure.Services
             payment.PaidAt = DateTime.UtcNow;
             payment.GatewayResponse = sessionId;
             var booking = _context.Bookings.Include(b => b.BookingSeats).FirstOrDefault(b => b.Id == payment.BookingId);
+            if (booking != null && IsClosedBooking(booking.Status))
+            {
+                payment.Status = PaymentStatus.Cancelled;
+                payment.GatewayResponse = "Đơn đã hết hạn thanh toán trước khi cổng trả kết quả";
+                _context.SaveChanges();
+                message = "Don da het han thanh toan";
+                bookingId = payment.BookingId;
+                return false;
+            }
             if (booking != null)
             {
                 booking.Status = BookingStatus.Paid;
@@ -295,6 +358,12 @@ namespace CinemaBooking.Infrastructure.Services
             bookingId = payment.BookingId;
             message = "Success";
             return true;
+        }
+
+        private static bool IsClosedBooking(BookingStatus status)
+        {
+            return status is BookingStatus.Cancelled or BookingStatus.Expired
+                or BookingStatus.Refunded or BookingStatus.RefundCompleted;
         }
 
         private void CreateElectronicTicketsIfNotExists(Booking booking)

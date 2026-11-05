@@ -6,7 +6,7 @@ namespace CinemaBooking.Application.Interfaces
     public interface IAdminService
     {
         // Dashboard
-        DashboardStatsDto GetDashboardStats();
+        DashboardStatsDto GetDashboardStats(int days = 14, int? year = null, DateTime? from = null, DateTime? to = null);
 
         RoomLayoutDto? GetRoomLayout(int roomId);
         RoomLayoutDto? SaveRoomLayout(int roomId, UpdateSeatLayoutRequest request);

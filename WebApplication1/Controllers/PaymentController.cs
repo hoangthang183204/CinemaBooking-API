@@ -27,9 +27,13 @@ namespace CinemaBooking.API.Controllers
         {
             var vnpay = !string.IsNullOrWhiteSpace(_config["Payment:VNPay:TmnCode"])
                 && !string.IsNullOrWhiteSpace(_config["Payment:VNPay:HashSecret"]);
+            var momo = !string.IsNullOrWhiteSpace(_config["Payment:MoMo:PartnerCode"])
+                && !string.IsNullOrWhiteSpace(_config["Payment:MoMo:AccessKey"])
+                && !string.IsNullOrWhiteSpace(_config["Payment:MoMo:SecretKey"]);
             return Ok(ApiResponse<object>.Ok(new
             {
                 vnpay,
+                momo,
                 bankBin = _config["VietQR:BankBin"] ?? "",
                 accountNumber = _config["VietQR:AccountNumber"] ?? "",
                 accountName = _config["VietQR:AccountName"] ?? ""
@@ -94,19 +98,25 @@ namespace CinemaBooking.API.Controllers
             var frontendUrl = _config["Frontend:BaseUrl"] ?? "http://localhost:5173";
             var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "127.0.0.1";
 
-            var result = _paymentService.CreatePaymentUrl(bookingId, request, frontendUrl, ipAddress);
-
-            if (result == null)
+            try
             {
-                var missingVnPay = string.Equals(request.Method, "vnpay", StringComparison.OrdinalIgnoreCase)
-                    && (string.IsNullOrWhiteSpace(_config["Payment:VNPay:TmnCode"])
-                        || string.IsNullOrWhiteSpace(_config["Payment:VNPay:HashSecret"]));
-                return BadRequest(ApiResponse<string>.Fail(missingVnPay
-                    ? "VNPay từ chối mã demo công khai (lỗi 99). Hãy đăng ký sandbox rồi điền TmnCode và HashSecret trong appsettings."
-                    : "Không tạo được link thanh toán"));
-            }
+                var result = _paymentService.CreatePaymentUrl(bookingId, request, frontendUrl, ipAddress);
+                if (result == null)
+                {
+                    var missingVnPay = string.Equals(request.Method, "vnpay", StringComparison.OrdinalIgnoreCase)
+                        && (string.IsNullOrWhiteSpace(_config["Payment:VNPay:TmnCode"])
+                            || string.IsNullOrWhiteSpace(_config["Payment:VNPay:HashSecret"]));
+                    return BadRequest(ApiResponse<string>.Fail(missingVnPay
+                        ? "VNPay từ chối mã demo công khai (lỗi 99). Hãy đăng ký sandbox rồi điền TmnCode và HashSecret trong appsettings."
+                        : "Không tạo được link thanh toán"));
+                }
 
-            return Ok(ApiResponse<CreatePaymentUrlResponse>.Ok(result));
+                return Ok(ApiResponse<CreatePaymentUrlResponse>.Ok(result));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(ApiResponse<string>.Fail(ex.Message));
+            }
         }
 
         [HttpGet("callback/vnpay")]
@@ -130,11 +140,36 @@ namespace CinemaBooking.API.Controllers
         }
 
         [HttpGet("callback/momo")]
+        [AllowAnonymous]
         public IActionResult CallbackMomo()
         {
             var query = Request.Query.ToDictionary(q => q.Key, q => q.Value.ToString() ?? "");
             _paymentService.HandleMomoCallback(query, out var bookingId, out var message);
             return Redirect(FrontendBookingSuccess(bookingId, message));
+        }
+
+        [HttpPost("ipn/momo")]
+        [AllowAnonymous]
+        public IActionResult IpnMomo([FromBody] System.Text.Json.JsonElement body)
+        {
+            var data = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (body.ValueKind == System.Text.Json.JsonValueKind.Object)
+            {
+                foreach (var prop in body.EnumerateObject())
+                {
+                    data[prop.Name] = prop.Value.ValueKind switch
+                    {
+                        System.Text.Json.JsonValueKind.String => prop.Value.GetString() ?? "",
+                        System.Text.Json.JsonValueKind.Number => prop.Value.GetRawText(),
+                        System.Text.Json.JsonValueKind.True => "true",
+                        System.Text.Json.JsonValueKind.False => "false",
+                        _ => ""
+                    };
+                }
+            }
+
+            _paymentService.HandleMomoCallback(data, out _, out var message);
+            return Ok(new { resultCode = 0, message });
         }
 
         private string FrontendBookingSuccess(int? bookingId, string message)

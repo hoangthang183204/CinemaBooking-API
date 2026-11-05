@@ -16,6 +16,10 @@ using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
+var renderPort = Environment.GetEnvironmentVariable("PORT");
+if (!string.IsNullOrWhiteSpace(renderPort))
+    builder.WebHost.UseUrls($"http://0.0.0.0:{renderPort}");
+
 // Add services to the container.
 
 builder.Services.AddControllers();
@@ -35,8 +39,10 @@ bool IsAllowedBrowserOrigin(string? origin)
     if (string.IsNullOrWhiteSpace(origin)) return true;
     var normalized = origin.TrimEnd('/');
     if (allowedOrigins.Contains(normalized, StringComparer.OrdinalIgnoreCase)) return true;
-    return Uri.TryCreate(normalized, UriKind.Absolute, out var uri)
-        && (uri.Host is "localhost" or "127.0.0.1");
+    if (!Uri.TryCreate(normalized, UriKind.Absolute, out var uri)) return false;
+    if (uri.Host is "localhost" or "127.0.0.1") return true;
+    return uri.Host.EndsWith(".vercel.app", StringComparison.OrdinalIgnoreCase)
+        || uri.Host.EndsWith(".onrender.com", StringComparison.OrdinalIgnoreCase);
 }
 
 builder.Services.AddCors(options =>
@@ -154,8 +160,8 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-// Dev dùng HTTP 5065 qua proxy Vite. Redirect sang HTTPS làm trình duyệt bỏ header Authorization và API trả 401.
-if (!app.Environment.IsDevelopment())
+// Render đã có HTTPS ở ngoài. Redirect trong container làm mất Authorization.
+if (!app.Environment.IsDevelopment() && string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("PORT")))
 {
     app.UseHttpsRedirection();
 }
@@ -164,6 +170,7 @@ app.UseAuthentication();
 
 app.UseAuthorization();
 
+app.MapGet("/health", () => Results.Ok(new { ok = true }));
 app.MapControllers();
 
 app.Run();

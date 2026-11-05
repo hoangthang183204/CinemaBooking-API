@@ -27,7 +27,7 @@ namespace CinemaBooking.Infrastructure.Services
         }
 
         // ========== DASHBOARD ==========
-        public DashboardStatsDto GetDashboardStats()
+        public DashboardStatsDto GetDashboardStats(int days = 14, int? year = null, DateTime? from = null, DateTime? to = null)
         {
             var paidBookings = _context.Bookings.Where(b => b.Status == BookingStatus.Paid);
             var allBookings = _context.Bookings.AsQueryable();
@@ -87,7 +87,9 @@ namespace CinemaBooking.Infrastructure.Services
                 RefundPending = allBookings.Count(b => b.Status == BookingStatus.Refunded),
                 RecentBookings = recent,
                 TopMovies = topMovies,
-                RevenueByDay = BuildRevenueByDay(),
+                RevenueByDay = from.HasValue && to.HasValue
+                    ? BuildRevenueRange(from.Value, to.Value)
+                    : year is int y ? BuildRevenueByMonth(y) : BuildRevenueByDay(days),
                 OccupancyRate = occupancy.Count == 0 ? 0 : Math.Round(occupancy.Average(x => x.Rate), 1),
                 RoomOccupancy = occupancy,
                 Alerts = BuildAlerts()
@@ -506,6 +508,7 @@ namespace CinemaBooking.Infrastructure.Services
 
         public List<StaffProfileDto> GetStaffDirectory()
         {
+            ExpireStaleShifts();
             var people = StaffPeople();
             var stats = ShiftStats();
             var duties = DutyStates();
@@ -592,6 +595,23 @@ namespace CinemaBooking.Infrastructure.Services
                 })
                 .ToList()
                 .ToDictionary(x => x.Key, x => (x.Count, x.Revenue));
+        }
+
+        private void ExpireStaleShifts()
+        {
+            var (todayStart, _) = VietnamTodayUtc();
+            var stale = _context.StaffShifts
+                .Where(s => s.EndedAt == null && s.StartedAt < todayStart)
+                .ToList();
+            if (stale.Count == 0) return;
+            foreach (var shift in stale)
+            {
+                var (_, dayEnd) = VietnamDayUtc(UtcStamp(shift.StartedAt));
+                shift.EndedAt = dayEnd;
+                shift.AwaitingHandover = false;
+                shift.Note = string.IsNullOrWhiteSpace(shift.Note) ? "Tự đóng cuối ngày" : shift.Note;
+            }
+            _context.SaveChanges();
         }
 
         private Dictionary<int, (bool Open, DateTime At)> DutyStates()
@@ -1090,6 +1110,8 @@ namespace CinemaBooking.Infrastructure.Services
 
             if (booking == null) return null;
             if (booking.Status == BookingStatus.Paid) return null;
+            if (booking.Status is BookingStatus.Cancelled or BookingStatus.Expired)
+                throw new InvalidOperationException("Đơn đã hết hạn thanh toán và được hủy tự động. Hãy tạo đơn mới.");
 
             var payMethod = ParsePayMethod(method, staffId);
             if (payMethod == PaymentMethod.Cash && cashReceived != null && cashReceived.Value < booking.TotalPrice)
@@ -1228,6 +1250,7 @@ namespace CinemaBooking.Infrastructure.Services
 
         public StaffHomeDto GetStaffHome(int staffId)
         {
+            ExpireStaleShifts();
             var shift = _context.StaffShifts.FirstOrDefault(s => s.StaffId == staffId && s.EndedAt == null);
             var totals = TodayCollected();
             var (startUtc, endUtc) = VietnamTodayUtc();
@@ -1296,6 +1319,7 @@ namespace CinemaBooking.Infrastructure.Services
 
         public ShiftReportDto OpenStaffShift(int staffId)
         {
+            ExpireStaleShifts();
             if (_context.StaffShifts.Any(s => s.AwaitingHandover && s.ReceivedAt == null && s.EndedAt != null))
                 throw new InvalidOperationException("Ca trước đang chờ bàn giao. Nhân viên kế tiếp cần đăng nhập và xác nhận nhận ca.");
             var shift = EnsureOpenShift(staffId);
@@ -1390,6 +1414,7 @@ namespace CinemaBooking.Infrastructure.Services
 
         public List<AdminShiftDto> GetShifts()
         {
+            ExpireStaleShifts();
             var shifts = _context.StaffShifts.OrderByDescending(s => s.StartedAt).ToList();
             var ids = shifts.Select(s => s.StaffId).Distinct().ToList();
             var people = _context.Users.Where(u => ids.Contains(u.Id)).ToDictionary(u => u.Id);
@@ -1406,6 +1431,7 @@ namespace CinemaBooking.Infrastructure.Services
 
         public AdminShiftDto AssignShift(int staffId, int adminId, string? note)
         {
+            ExpireStaleShifts();
             var staff = _context.Users.FirstOrDefault(u => u.Id == staffId && u.IsActive && u.Role == UserRole.Staff);
             if (staff == null)
                 throw new InvalidOperationException("Chỉ gán ca cho tài khoản nhân viên đang hoạt động.");
@@ -2041,11 +2067,74 @@ namespace CinemaBooking.Infrastructure.Services
             return CinemaPricing.LoadSettings(_context);
         }
 
-        private List<RevenuePointDto> BuildRevenueByDay()
+        private List<RevenuePointDto> BuildRevenueRange(DateTime from, DateTime to)
         {
+            from = from.Date;
+            to = to.Date;
+            if (to < from) (from, to) = (to, from);
+            if ((to - from).TotalDays > 3660) from = to.AddDays(-3660);
+            var paid = LoadPaidRevenue();
+            if ((to - from).TotalDays > 62)
+                return MonthsInRange(from, to, paid);
+
+            var sameYear = from.Year == to.Year;
+            var points = new List<RevenuePointDto>();
+            for (var day = from; day <= to; day = day.AddDays(1))
+            {
+                var ofDay = paid.Where(b => b.PaidOn.Date == day).ToList();
+                var label = sameYear ? day.ToString("dd/MM") : day.ToString("dd/MM/yy");
+                points.Add(ToRevenuePoint(label, ofDay));
+            }
+            return points;
+        }
+
+        private static List<RevenuePointDto> MonthsInRange(DateTime from, DateTime to, List<PaidRevenueRow> paid)
+        {
+            var points = new List<RevenuePointDto>();
+            var cursor = new DateTime(from.Year, from.Month, 1);
+            var last = new DateTime(to.Year, to.Month, 1);
+            while (cursor <= last)
+            {
+                var monthEnd = cursor.AddMonths(1).AddDays(-1);
+                var sliceFrom = cursor < from ? from : cursor;
+                var sliceTo = monthEnd > to ? to : monthEnd;
+                var rows = paid.Where(b => b.PaidOn.Date >= sliceFrom && b.PaidOn.Date <= sliceTo).ToList();
+                points.Add(ToRevenuePoint(cursor.ToString("MM/yyyy"), rows));
+                cursor = cursor.AddMonths(1);
+            }
+            return points;
+        }
+
+        private List<RevenuePointDto> BuildRevenueByDay(int days)
+        {
+            if (days < 7) days = 7;
+            if (days > 90) days = 90;
             var today = CinemaPricing.ToVietnam(DateTime.UtcNow).Date;
-            var start = today.AddDays(-13);
-            var paid = _context.Bookings
+            var start = today.AddDays(-days);
+            var paid = LoadPaidRevenue();
+            return Enumerable.Range(0, days + 1).Select(i =>
+            {
+                var day = start.AddDays(i);
+                var ofDay = paid.Where(b => b.PaidOn.Date == day).ToList();
+                return ToRevenuePoint(day.ToString("dd/MM"), ofDay);
+            }).ToList();
+        }
+
+        private List<RevenuePointDto> BuildRevenueByMonth(int year)
+        {
+            var todayYear = CinemaPricing.ToVietnam(DateTime.UtcNow).Year;
+            if (year < todayYear - 10 || year > todayYear) year = todayYear;
+            var paid = LoadPaidRevenue();
+            return Enumerable.Range(1, 12).Select(month =>
+            {
+                var ofMonth = paid.Where(b => b.PaidOn.Year == year && b.PaidOn.Month == month).ToList();
+                return ToRevenuePoint($"{month:00}/{year}", ofMonth);
+            }).ToList();
+        }
+
+        private List<PaidRevenueRow> LoadPaidRevenue()
+        {
+            return _context.Bookings
                 .Where(b => b.Status == BookingStatus.Paid)
                 .Select(b => new
                 {
@@ -2057,27 +2146,48 @@ namespace CinemaBooking.Infrastructure.Services
                     Start = b.ShowTime.StartTime,
                     Seats = b.BookingSeats.Count
                 })
-                .ToList();
-            return Enumerable.Range(0, 14).Select(i =>
-            {
-                var day = start.AddDays(i);
-                var ofDay = paid.Where(b => CinemaPricing.ToVietnam(b.CreatedAt).Date == day).ToList();
-                return new RevenuePointDto
+                .AsEnumerable()
+                .Select(b => new PaidRevenueRow
                 {
-                    Date = day.ToString("dd/MM"),
-                    Revenue = ofDay.Sum(b => b.TotalPrice),
-                    Bookings = ofDay.Count,
-                    Lines = ofDay.OrderByDescending(b => b.TotalPrice).Select(b => new RevenueLineDto
-                    {
-                        BookingId = b.Id,
-                        MovieTitle = b.Movie,
-                        RoomName = b.Room,
-                        ShowTimeStart = b.Start,
-                        Seats = b.Seats,
-                        TotalPrice = b.TotalPrice
-                    }).ToList()
-                };
-            }).ToList();
+                    Id = b.Id,
+                    PaidOn = CinemaPricing.ToVietnam(b.CreatedAt),
+                    TotalPrice = b.TotalPrice,
+                    Movie = b.Movie,
+                    Room = b.Room,
+                    Start = b.Start,
+                    Seats = b.Seats
+                })
+                .ToList();
+        }
+
+        private static RevenuePointDto ToRevenuePoint(string label, List<PaidRevenueRow> rows)
+        {
+            return new RevenuePointDto
+            {
+                Date = label,
+                Revenue = rows.Sum(b => b.TotalPrice),
+                Bookings = rows.Count,
+                Lines = rows.OrderByDescending(b => b.TotalPrice).Select(b => new RevenueLineDto
+                {
+                    BookingId = b.Id,
+                    MovieTitle = b.Movie,
+                    RoomName = b.Room,
+                    ShowTimeStart = b.Start,
+                    Seats = b.Seats,
+                    TotalPrice = b.TotalPrice
+                }).ToList()
+            };
+        }
+
+        private sealed class PaidRevenueRow
+        {
+            public int Id { get; set; }
+            public DateTime PaidOn { get; set; }
+            public decimal TotalPrice { get; set; }
+            public string Movie { get; set; } = "";
+            public string Room { get; set; } = "";
+            public DateTime Start { get; set; }
+            public int Seats { get; set; }
         }
 
         private List<RoomOccupancyDto> BuildOccupancy()
@@ -2165,7 +2275,7 @@ namespace CinemaBooking.Infrastructure.Services
                 });
             }
 
-            var stale = DateTime.UtcNow.AddMinutes(-20);
+            var stale = DateTime.UtcNow.AddMinutes(-10);
             var pending = _context.Bookings.Count(b => b.Status == BookingStatus.Pending && b.CreatedAt < stale);
             if (pending > 0)
             {
@@ -2173,7 +2283,7 @@ namespace CinemaBooking.Infrastructure.Services
                 {
                     Level = "info",
                     Title = "Đơn chờ thanh toán",
-                    Text = $"{pending} đơn pending hơn 20 phút.",
+                    Text = $"{pending} đơn chờ quá 10 phút. Lượt quét kế tiếp sẽ hủy và trả ghế.",
                     Href = "/admin/bookings"
                 });
             }

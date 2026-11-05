@@ -8,6 +8,7 @@ using CinemaBooking.Domain.Entities;
 using CinemaBooking.Domain.Enums;
 using CinemaBooking.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
+using Google.Apis.Auth;
 using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
 
@@ -54,6 +55,64 @@ namespace CinemaBooking.Infrastructure.Services
 
             if (user == null || !user.IsActive) return null;
             if (!BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash)) return null;
+
+            return BuildAuthResponse(user);
+        }
+
+        public async Task<AuthResponse> LoginWithGoogleAsync(string idToken)
+        {
+            var clientId = _config["Google:ClientId"];
+            if (string.IsNullOrWhiteSpace(clientId))
+                throw new InvalidOperationException("Chưa cấu hình Google Client ID trên máy chủ.");
+            if (string.IsNullOrWhiteSpace(idToken))
+                throw new InvalidOperationException("Thiếu mã đăng nhập Google.");
+
+            GoogleJsonWebSignature.Payload payload;
+            try
+            {
+                payload = await GoogleJsonWebSignature.ValidateAsync(idToken, new GoogleJsonWebSignature.ValidationSettings
+                {
+                    Audience = new[] { clientId }
+                });
+            }
+            catch (InvalidJwtException)
+            {
+                throw new InvalidOperationException("Phiên đăng nhập Google không hợp lệ.");
+            }
+
+            var email = (payload.Email ?? "").Trim().ToLowerInvariant();
+            if (email.Length == 0 || !payload.EmailVerified)
+                throw new InvalidOperationException("Google chưa xác thực email này.");
+
+            var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == email);
+            if (user == null)
+            {
+                var name = string.IsNullOrWhiteSpace(payload.Name) ? email.Split('@')[0] : payload.Name.Trim();
+                if (name.Length > 128) name = name[..128];
+                user = new User
+                {
+                    Email = email,
+                    PasswordHash = BCrypt.Net.BCrypt.HashPassword(Guid.NewGuid().ToString("N")),
+                    FullName = name,
+                    Role = UserRole.Customer,
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow
+                };
+                _context.Users.Add(user);
+                try
+                {
+                    await _context.SaveChangesAsync();
+                }
+                catch (DbUpdateException)
+                {
+                    _context.Entry(user).State = EntityState.Detached;
+                    user = await _context.Users.FirstOrDefaultAsync(u => u.Email == email)
+                        ?? throw new InvalidOperationException("Không lưu được tài khoản Google.");
+                }
+            }
+
+            if (!user.IsActive)
+                throw new InvalidOperationException("Tài khoản đã bị khóa.");
 
             return BuildAuthResponse(user);
         }

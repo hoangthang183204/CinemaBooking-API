@@ -19,9 +19,9 @@ namespace CinemaBooking.API.Controllers
 
         // ========== DASHBOARD ==========
         [HttpGet("dashboard")]
-        public IActionResult Dashboard()
+        public IActionResult Dashboard([FromQuery] int days = 14, [FromQuery] int? year = null, [FromQuery] DateTime? from = null, [FromQuery] DateTime? to = null)
         {
-            return Ok(ApiResponse<DashboardStatsDto>.Ok(_admin.GetDashboardStats()));
+            return Ok(ApiResponse<DashboardStatsDto>.Ok(_admin.GetDashboardStats(days, year, from, to)));
         }
 
         // ========== MOVIES ==========

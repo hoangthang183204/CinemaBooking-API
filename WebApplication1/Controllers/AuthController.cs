@@ -41,6 +41,21 @@ namespace CinemaBooking.API.Controllers
             return Ok(ApiResponse<AuthResponse>.Ok(result, "Đăng nhập thành công"));
         }
 
+        [HttpPost("google")]
+        [AllowAnonymous]
+        public async Task<IActionResult> Google([FromBody] GoogleLoginRequest request)
+        {
+            try
+            {
+                var result = await _auth.LoginWithGoogleAsync(request.IdToken);
+                return Ok(ApiResponse<AuthResponse>.Ok(result, "Đăng nhập thành công"));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(ApiResponse<string>.Fail(ex.Message));
+            }
+        }
+
         [HttpGet("me")]
         [Authorize]
         public async Task<IActionResult> Me()
